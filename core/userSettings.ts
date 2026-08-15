@@ -1,57 +1,96 @@
-import { InfrastructureInput } from './infrastructureFactor'
+import { InfrastructureInput } from './infrastructureFactor';
 
+// District -> coordinates lookup, scoped to the app's validated first
+// target area only. Per the tech spec's Known Limitations section:
+// "Tamil Nadu is the data and infrastructure foundation; Coimbatore's
+// power-loom sector is the specific, validated first target user group,
+// not a claim of statewide relevance." Other districts are intentionally
+// not included here - adding them without validating the outage feed
+// parsing, weather thresholds, or infrastructure factor against their real
+// data would be scope creep beyond what this project's research supports.
 export interface DistrictOption {
   name: string;
   lat: number;
   lon: number;
 }
 
-// only coimbatore for now, model isnt validated for other districts yet
 export const SUPPORTED_DISTRICTS: DistrictOption[] = [
   { name: 'Coimbatore', lat: 11.0168, lon: 76.9558 },
-]
+];
 
 export function findDistrict(name: string): DistrictOption | undefined {
-  return SUPPORTED_DISTRICTS.find((d) => d.name.toLowerCase() === name.toLowerCase())
+  return SUPPORTED_DISTRICTS.find((d) => d.name.toLowerCase() === name.toLowerCase());
 }
 
-export interface UserSettings {
+export interface LocationInput {
   district: string;
-  infrastructure: InfrastructureInput;
+  area: string;
+  pincode: string;
 }
 
-const k1 = 'ohm:userSettings'
-const d1: UserSettings = {
-  district: 'Coimbatore',
+export type RiskTolerance = 'cautious' | 'balanced' | 'minimal';
+
+export interface PreferencesInput {
+  riskTolerance: RiskTolerance;
+  notificationsOn: boolean;
+  quietHoursOn: boolean;
+  quietHoursStart: string; // "22:00"
+  quietHoursEnd: string; // "06:00"
+}
+
+// Persisted user settings - the full onboarding field set, all editable
+// afterward from Settings (matches the mockup's "Your info" section
+// containing the same fields collected during onboarding).
+export interface UserSettings {
+  location: LocationInput;
+  businessType: string;
+  infrastructure: InfrastructureInput;
+  preferences: PreferencesInput;
+}
+
+const SETTINGS_KEY = 'ohm:userSettings';
+const DEFAULT_SETTINGS: UserSettings = {
+  location: { district: 'Coimbatore', area: '', pincode: '' },
+  businessType: '',
   infrastructure: {
     feederType: 'not_sure',
     buildingAgeYears: null,
     priorOutageFrequencyPerMonth: null,
     backupGenerator: 'none',
   },
-}
+  preferences: {
+    riskTolerance: 'balanced',
+    notificationsOn: true,
+    quietHoursOn: false,
+    quietHoursStart: '22:00',
+    quietHoursEnd: '06:00',
+  },
+};
 
 export async function loadUserSettings(): Promise<UserSettings> {
   try {
-    const s = (await import('@react-native-async-storage/async-storage')).default
-    const raw = await s.getItem(k1)
-    if (!raw) return d1
-    const p = JSON.parse(raw)
-    if (!p.district || !findDistrict(p.district)) {
-      // unknown or corrupted district saved, fall back instead of crashing
-      return d1
+    const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
+    const raw = await AsyncStorage.getItem(SETTINGS_KEY);
+    if (!raw) return DEFAULT_SETTINGS;
+    const parsed = JSON.parse(raw);
+    const district = parsed.location?.district ?? parsed.district;
+    if (!district || !findDistrict(district)) {
+      // Unknown/corrupted district - fall back to default rather than crash
+      return DEFAULT_SETTINGS;
     }
     return {
-      district: p.district,
-      infrastructure: p.infrastructure ?? d1.infrastructure,
-    }
-  } catch (e) {
-    console.warn('UserSettings: failed to load, using default', e)
-    return d1
+      location: parsed.location ?? { ...DEFAULT_SETTINGS.location, district },
+      businessType: parsed.businessType ?? DEFAULT_SETTINGS.businessType,
+      infrastructure: parsed.infrastructure ?? DEFAULT_SETTINGS.infrastructure,
+      preferences: parsed.preferences ?? DEFAULT_SETTINGS.preferences,
+    };
+  } catch (err) {
+    console.warn('UserSettings: failed to load, using default', err);
+    return DEFAULT_SETTINGS;
   }
 }
 
-export async function saveUserSettings(s: UserSettings): Promise<void> {
-  const store = (await import('@react-native-async-storage/async-storage')).default
-  await store.setItem(k1, JSON.stringify(s))
+export async function saveUserSettings(settings: UserSettings): Promise<void> {
+  const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
+  await AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
 }
