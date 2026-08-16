@@ -21,13 +21,66 @@ interface AccuracyStats {
 
 interface DayBar {
   date: string;
-  riskLevel: 'Low' | 'Elevated' | 'High';
-  riskScore: number; // ADDED: Force strict numerical metrics mapping layer passing
+  riskLevel: 'Low' | 'Elevated' | 'High' | null; // null when there's no logged prediction for this day
+  riskScore: number;
   hadOutage: boolean;
+  hasData: boolean;
 }
 
 
-function computeStats(windows: ConfirmedWindow[]): AccuracyStats {
+// Derives a tier label from an averaged score, using the same thresholds
+// riskEngine.ts uses (0.35/0.65 on its 0-1 scale, so 35/65 here since
+// riskScore is stored on a 0-100 scale).
+function tierFromAverageScore(avgScore: number): 'Low' | 'Elevated' | 'High' {
+  if (avgScore >= 65) return 'High';
+  if (avgScore >= 35) return 'Elevated';
+  return 'Low';
+}
+
+// The pipeline can run (and log a prediction) many times in one day - app
+// opens, pull-to-refresh, settings changes all trigger a run with no daily
+// dedupe. Collapse same-day entries into one averaged entry per day so
+// someone who opens the app 10x a day doesn't get 10x the weight in either
+// the accuracy stats or the chart, and so the chart doesn't just show
+// whichever run happened to be inserted first.
+function collapseByDay(windows: ConfirmedWindow[]): ConfirmedWindow[] {
+  const byDay = new Map<string, ConfirmedWindow[]>();
+  for (const w of windows) {
+    const dayKey = new Date(w.windowStart).toDateString();
+    const existing = byDay.get(dayKey);
+    if (existing) existing.push(w);
+    else byDay.set(dayKey, [w]);
+  }
+
+  return Array.from(byDay.values()).map((dayWindows) => {
+    const scores = dayWindows.map(
+      (w) => w.riskScore ?? (w.riskLevel === 'High' ? 85 : w.riskLevel === 'Elevated' ? 55 : 15)
+    );
+    const avgScore = scores.reduce((sum, s) => sum + s, 0) / scores.length;
+
+    // Lead time and outage confirmation are per-window facts, not
+    // something that changes across runs on the same day - use the widest
+    // logged window and whether any run that day was confirmed an outage.
+    const widest = dayWindows.reduce((a, b) => {
+      const aLen = new Date(a.windowEnd).getTime() - new Date(a.windowStart).getTime();
+      const bLen = new Date(b.windowEnd).getTime() - new Date(b.windowStart).getTime();
+      return bLen > aLen ? b : a;
+    });
+
+    return {
+      id: `day-${dayWindows[0].windowStart}`,
+      riskLevel: tierFromAverageScore(avgScore),
+      riskScore: avgScore,
+      windowStart: widest.windowStart,
+      windowEnd: widest.windowEnd,
+      outcome: dayWindows.some((w) => w.outcome === 'outage') ? 'outage' : dayWindows.some((w) => w.outcome === 'no_outage') ? 'no_outage' : null,
+      source: widest.source,
+    };
+  });
+}
+
+function computeStats(rawWindows: ConfirmedWindow[]): AccuracyStats {
+  const windows = collapseByDay(rawWindows);
   let correctWarnings = 0;
   let falseAlarms = 0;
   let missedOutages = 0;
@@ -82,7 +135,8 @@ function computeStats(windows: ConfirmedWindow[]): AccuracyStats {
   };
 }
 
-function buildDayBars(windows: ConfirmedWindow[]): DayBar[] {
+function buildDayBars(rawWindows: ConfirmedWindow[]): DayBar[] {
+  const windows = collapseByDay(rawWindows);
   const now = Date.now();
   const oneDayMs = 24 * 60 * 60 * 1000;
   
@@ -90,32 +144,28 @@ function buildDayBars(windows: ConfirmedWindow[]): DayBar[] {
     const targetTime = now - (13 - index) * oneDayMs;
     const targetDateString = new Date(targetTime).toDateString();
     
-    const matchingWindow = windows.find(w => new Date(w.windowStart).toDateString() === targetDateString);
+    const matchingWindow = windows.find((w) => new Date(w.windowStart).toDateString() === targetDateString);
     
     if (matchingWindow) {
       return {
         date: matchingWindow.windowStart,
         riskLevel: matchingWindow.riskLevel,
-        // Grabs the real stored numeric database score, or defaults based on the tier scale
-        riskScore: matchingWindow.riskScore ?? (matchingWindow.riskLevel === 'High' ? 85 : matchingWindow.riskLevel === 'Elevated' ? 55 : 15),
+        riskScore: matchingWindow.riskScore ?? 0,
         hadOutage: matchingWindow.outcome === 'outage',
+        hasData: true,
       };
     }
-    
-    // Balanced Dynamic Mock Data Fallback Context Generator:
-    // This now generates continuous continuous continuous random-looking scores inside logical bands
-    const mockLevel: 'Low' | 'Elevated' | 'High' = index % 5 === 0 ? 'High' : index % 3 === 0 ? 'Elevated' : 'Low';
-    const baseScore = mockLevel === 'High' ? 75 : mockLevel === 'Elevated' ? 45 : 15;
-    const deterministicVariance = (index * 7) % 20; // Natural continuous variable scale
-    const mockScore = baseScore + deterministicVariance;
-    
-    const mockOutage = mockLevel === 'High' && index % 2 === 0;
 
+    // No logged prediction for this day - render an honest empty stub
+    // instead of inventing a risk level and outage dot. A previous version
+    // of this fell back to deterministic fake data here, which made the
+    // chart show outages that never happened.
     return {
       date: targetDateString,
-      riskLevel: mockLevel,
-      riskScore: mockScore,
-      hadOutage: mockOutage,
+      riskLevel: null,
+      riskScore: 0,
+      hadOutage: false,
+      hasData: false,
     };
   });
 
@@ -136,21 +186,24 @@ function AccuracyChart({ bars, theme }: { bars: DayBar[]; theme: OhmTheme }) {
         const colorFor = (level: DayBar['riskLevel']) => {
           if (level === 'High') return theme.riskHigh;
           if (level === 'Elevated') return theme.riskElevated;
-          return theme.riskLow;
+          if (level === 'Low') return theme.riskLow;
+          return theme.border; // no data for this day - neutral, not a risk color
         };
 
-        // NEW MATHEMATICAL MAP ENGINE SYSTEM:
-        // Converts a numeric riskScore input space parameter scale (0 to 100) 
-        // into a direct matching pixel rendering box output space (15px to 125px)
+        // Converts a numeric riskScore (0-100) into a bar pixel height
+        // (18px to 125px). Days with no data get a short flat stub instead
+        // of a score-driven height, so an empty day never reads as "Low risk".
         const minPixelHeight = 18;
         const maxPixelHeight = 125;
-        const barHeight = minPixelHeight + (bar.riskScore / 100) * (maxPixelHeight - minPixelHeight);
+        const barHeight = bar.hasData
+          ? minPixelHeight + (bar.riskScore / 100) * (maxPixelHeight - minPixelHeight)
+          : minPixelHeight;
         
         const x = i * gap + (gap - barWidth) / 2;
         const y = chartHeight - barHeight; 
 
         return (
-          <G key={i}>
+          <G key={i} opacity={bar.hasData ? 1 : 0.35}>
             {/* Primary Track Segment */}
             <Rect 
               x={x} 
@@ -168,7 +221,7 @@ function AccuracyChart({ bars, theme }: { bars: DayBar[]; theme: OhmTheme }) {
               height={9} 
               fill={colorFor(bar.riskLevel)} 
             />
-            {bar.hadOutage && (
+            {bar.hasData && bar.hadOutage && (
               <Circle 
                 cx={x + barWidth / 2} 
                 cy={y - 8} 
@@ -243,7 +296,7 @@ export default function AccuracyScreen() {
       </View>
       <View style={styles.chartCaption}>
         <Text style={styles.chartCaptionTitle}>Outage risks in the past 2 weeks</Text>
-        <Text style={styles.chartCaptionSubtitle}>Dots above the bar mean an outage occurred on that day</Text>
+        <Text style={styles.chartCaptionSubtitle}>Dots above the bar mean an outage occurred on that day. Faded bars mean no data was logged.</Text>
       </View>
 
       <View style={styles.statCircleRow}>
@@ -298,7 +351,7 @@ export default function AccuracyScreen() {
 
 function makeStyles(theme: OhmTheme) {
   return StyleSheet.create({
-    content: { padding: 20, paddingTop: 30, paddingBottom: 120, flexGrow: 1 },
+    content: { padding: 20, paddingTop: 60, paddingBottom: 180, flexGrow: 1 },
     centered: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.background },
     
     headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 36 },

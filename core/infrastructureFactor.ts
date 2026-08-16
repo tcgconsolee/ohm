@@ -47,7 +47,18 @@ export function computeInfrastructureFactor(inp: InfrastructureInput = d1): Infr
     }
   }
 
-  score = Math.min(score, 1)
+  // a backup generator doesn't prevent an outage, but it's a real mitigating
+  // factor for the business - small downward nudge, diesel being the most
+  // common/reliable option gets a slightly bigger one than "other"
+  if (inp.backupGenerator === 'diesel') {
+    score -= 0.1
+    notes.push('has a diesel backup generator')
+  } else if (inp.backupGenerator === 'other') {
+    score -= 0.05
+    notes.push('has backup power')
+  }
+
+  score = Math.max(0, Math.min(score, 1))
 
   const reason =
     notes.length > 0

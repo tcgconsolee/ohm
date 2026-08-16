@@ -388,7 +388,7 @@ function makeStyles(theme: OhmTheme) {
   const isLight = theme.mode === 'light';
 
   return StyleSheet.create({
-    content: { padding: 20, paddingTop: 30, paddingBottom: 120, flexGrow: 1 },
+    content: { padding: 20, paddingTop: 60, paddingBottom: 180, flexGrow: 1 },
     headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 36 },
     boltBox: { width: 36, height: 36, borderWidth: 1, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
     settingsIconBox: { width: 36, height: 36, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },

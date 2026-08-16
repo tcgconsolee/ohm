@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { View, ActivityIndicator, StyleSheet, Pressable, Animated, Text } from 'react-native';
-import { NavigationContainer } from '@react-navigation/native';
+import { View, ActivityIndicator, StyleSheet, Pressable, Animated, Text, Platform } from 'react-native';
+import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -18,6 +18,7 @@ import AccuracyScreen from './screens/AccuracyScreen';
 import SettingsScreen from './screens/SettingsScreen';
 import ActionPlanScreen from './screens/ActionPlanScreen';
 import ReportScreen from './screens/ReportScreen';
+import ConfirmationScreen from './screens/ConfirmationScreen';
 import DisclosureScreen from './screens/DisclosureScreen';
 
 import Icon from './components/Icon';
@@ -25,6 +26,10 @@ import Icon from './components/Icon';
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
 const AnimatedG = Animated.createAnimatedComponent(G);
+
+// Lets the notification-response listener below navigate without being
+// inside the NavigationContainer's component tree.
+export const navigationRef = createNavigationContainerRef();
 
 function MainTabs() {
   const theme = useTheme();
@@ -60,7 +65,7 @@ function MainTabs() {
     extrapolate: 'clamp',
   });
 
-  const calculatedBarHeight = 64 + (insets.bottom > 0 ? insets.bottom : 12);
+  const calculatedBarHeight = 84 + (insets.bottom > 0 ? insets.bottom : 12);
 
   return (
     <Tab.Navigator
@@ -128,7 +133,7 @@ function MainTabs() {
               styles.tabItemsInteractiveRow,
               {
                 height: calculatedBarHeight,
-                paddingBottom: insets.bottom > 0 ? insets.bottom+6 : 8
+                paddingBottom: insets.bottom > 0 ? insets.bottom+10 : 8
               }
             ]}>
               {state.routes.map((route, index) => {
@@ -210,6 +215,49 @@ function RootNavigator() {
     };
   }, []);
 
+  // Tapping the "Did the power go out?" confirmation prompt should open
+  // the Confirmation screen - previously this notification fired but
+  // tapping it did nothing, since nothing read its data payload.
+  useEffect(() => {
+    if (Platform.OS === 'web') return; // expo-notifications isn't supported on web, matches notifications.ts guards
+
+    let subscription: { remove: () => void } | undefined;
+
+    (async () => {
+      try {
+        const Notifications = await import('expo-notifications');
+
+        const handleResponse = (response: any) => {
+          const data = response?.notification?.request?.content?.data;
+          if (data?.type !== 'confirmation_prompt') return;
+
+          // On a cold start via notification tap, the nav container may not
+          // be mounted yet (still on splash/onboarding check) - retry briefly
+          // instead of silently dropping the navigation.
+          const tryNavigate = (attemptsLeft: number) => {
+            if (navigationRef.isReady()) {
+              navigationRef.navigate('Confirmation' as never);
+            } else if (attemptsLeft > 0) {
+              setTimeout(() => tryNavigate(attemptsLeft - 1), 300);
+            }
+          };
+          tryNavigate(10); // up to ~3s
+        };
+
+        // Covers the app being opened fresh by tapping a notification.
+        const lastResponse = await Notifications.getLastNotificationResponseAsync();
+        if (lastResponse) handleResponse(lastResponse);
+
+        // Covers the app already being open/backgrounded when tapped.
+        subscription = Notifications.addNotificationResponseReceivedListener(handleResponse);
+      } catch (err) {
+        console.warn('Notification response listener setup failed:', err);
+      }
+    })();
+
+    return () => subscription?.remove();
+  }, []);
+
   const handleSplashFinished = async () => {
     const complete = await isOnboardingComplete();
     setPhase(complete ? 'main' : 'onboarding');
@@ -225,6 +273,7 @@ function RootNavigator() {
 
   return (
     <NavigationContainer
+      ref={navigationRef}
       theme={{
         dark: theme.mode === 'dark',
         colors: {
@@ -253,6 +302,11 @@ function RootNavigator() {
         <Stack.Screen
           name="Report"
           component={ReportScreen}
+          options={{ presentation: 'modal', headerShown: true, title: '' }}
+        />
+        <Stack.Screen
+          name="Confirmation"
+          component={ConfirmationScreen}
           options={{ presentation: 'modal', headerShown: true, title: '' }}
         />
         <Stack.Screen
@@ -296,6 +350,6 @@ const styles = StyleSheet.create({
   tabItemsInteractiveRow: { flexDirection: 'row', width: '100%', alignItems: 'flex-end', zIndex: 10 },
   singleTabColumnAnchor: { flex: 1, alignItems: 'center', justifyContent: 'flex-end', height: '100%' },
   standardInactiveCircle: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', marginBottom: 0 },
-  elevatedActiveCircle: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center', position: 'absolute', bottom: 24, shadowColor: '#000', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.1, shadowRadius: 3, elevation: 3 },
+  elevatedActiveCircle: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center', position: 'absolute', bottom: 30, shadowColor: '#000', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.1, shadowRadius: 3, elevation: 3 },
   tabTypographyLabel: { fontFamily: 'Gilroy-Bold', fontSize: 12, fontWeight: '700', textAlign: 'center', width: '100%' },
 });

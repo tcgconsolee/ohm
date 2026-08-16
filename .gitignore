@@ -40,3 +40,5 @@ yarn-error.*
 
 # Logs
 *.log
+
+ui.png

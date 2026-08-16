@@ -173,7 +173,7 @@ export default function ActionPlanScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  scrollContent: { padding: 24, paddingTop: 30, paddingBottom: 40, alignItems: 'center', flexGrow: 1 },
+  scrollContent: { padding: 24, paddingTop: 60, paddingBottom: 40, alignItems: 'center', flexGrow: 1 },
   logo: { alignSelf: 'center', marginBottom: 20 },
   
   headerCard: { borderRadius: 24, padding: 0, marginBottom: 24, width: '100%', overflow: 'hidden' },
@@ -191,9 +191,9 @@ const styles = StyleSheet.create({
   stepBlock: { marginBottom: 2 },
   fieldLabel: { fontSize: 13, marginTop: 14, marginBottom: 8, fontFamily: 'Gilroy-Bold', fontWeight: '700', textTransform: 'lowercase' },
   
-  inputContainer: { flexDirection: 'row', alignItems: 'stretch', borderWidth: 1, borderRadius: 12, width: '100%', overflow: 'hidden' },
-  textInput: { flex: 1, padding: 12, fontSize: 14, fontFamily: 'Gilroy-Regular' },
-  deleteButton: { width: 48, height: '100%', alignItems: 'center', justifyContent: 'center', borderLeftWidth: 1 },
+  inputContainer: { flexDirection: 'row', alignItems: 'stretch', borderWidth: 1, borderRadius: 12, width: '100%', overflow: 'hidden', height: 48 },
+  textInput: { flex: 1, paddingHorizontal: 12, paddingVertical: 0, fontSize: 14, fontFamily: 'Gilroy-Regular', height: 48, textAlignVertical: 'center' },
+  deleteButton: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center', borderLeftWidth: 1 },
   
   suggestionChips: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 4, marginBottom: 4 },
   suggestionChip: { borderWidth: 1, borderRadius: 12, paddingVertical: 10, paddingHorizontal: 16, marginRight: 8, marginBottom: 8 },

@@ -2,6 +2,7 @@ import { WeatherFactor } from './weather'
 import { HistoryFactor } from './historyFactor'
 import { InfrastructureFactor } from './infrastructureFactor'
 import { RiskTier } from './confirmationLog'
+import { RiskTolerance } from './userSettings'
 
 // history counts more than weather, infra just a light nudge
 const w1 = 0.35
@@ -13,16 +14,35 @@ export interface RiskResult {
   tier: RiskTier;
   dominantFactor: 'weather' | 'history' | 'infrastructure' | 'both';
   explanation: string;
+  // Raw weighted contributions (weight * factor score) behind `score`,
+  // exposed so the UI can show each factor's share of the total risk.
+  contributions: {
+    weather: number;
+    history: number;
+    infrastructure: number;
+  };
 }
 
-const t1 = 0.35 // below this = Low
-const t2 = 0.65 // above this = High, between the two = Elevated
+// Base thresholds, used for 'balanced'. 'cautious' users see Elevated/High
+// sooner (lower thresholds); 'minimal' users only see them at higher scores.
+const BASE_T1 = 0.35 // below this = Low
+const BASE_T2 = 0.65 // above this = High, between the two = Elevated
+
+const TOLERANCE_OFFSET: Record<RiskTolerance, number> = {
+  cautious: -0.1,
+  balanced: 0,
+  minimal: 0.1,
+}
 
 export function computeRisk(
   a: WeatherFactor,
   b: HistoryFactor,
-  c: InfrastructureFactor
+  c: InfrastructureFactor,
+  tolerance: RiskTolerance = 'balanced'
 ): RiskResult {
+  const offset = TOLERANCE_OFFSET[tolerance] ?? TOLERANCE_OFFSET.balanced
+  const t1 = BASE_T1 + offset
+  const t2 = BASE_T2 + offset
   const c1 = a.score * w1
   const c2 = b.score * w2
   const c3 = c.score * w3
@@ -54,5 +74,5 @@ export function computeRisk(
     explanation = `${tier} risk today, driven by both current weather and recent outage patterns.`
   }
 
-  return { score, tier, dominantFactor: dom, explanation }
+  return { score, tier, dominantFactor: dom, explanation, contributions: { weather: c1, history: c2, infrastructure: c3 } }
 }

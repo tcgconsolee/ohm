@@ -142,7 +142,7 @@ export default function ReportScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  scrollContent: { padding: 24, paddingTop: 30, paddingBottom: 40, alignItems: 'center', flexGrow: 1 },
+  scrollContent: { padding: 24, paddingTop: 60, paddingBottom: 40, alignItems: 'center', flexGrow: 1 },
   
   logo: { alignSelf: 'center', marginBottom: 20 },
   
@@ -163,7 +163,7 @@ const styles = StyleSheet.create({
   
   // High-fidelity form styles cloned directly from InfrastructureStep/LocationStep
   fieldLabel: { fontSize: 13, marginTop: 18, marginBottom: 8, fontFamily: 'Gilroy-Bold', fontWeight: '700', textTransform: 'lowercase' },
-  textInput: { borderWidth: 1, borderRadius: 12, padding: 12, fontSize: 14, fontFamily: 'Gilroy-Regular', width: '100%' },
+  textInput: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 0, fontSize: 14, fontFamily: 'Gilroy-Regular', width: '100%', height: 46, textAlignVertical: 'center' },
   
   timeRow: { flexDirection: 'row', alignItems: 'center', width: '100%' },
   timeInput: { flex: 1 },

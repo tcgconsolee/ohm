@@ -9,6 +9,7 @@ import DetailsIcon from '../assets/details-icon.svg';
 import DisclosureOnboardingIcon from '../assets/disclosure-icon-onboarding.svg';
 import ExitIcon from '../assets/exit-icon.svg';
 import InfrastructureOnboardingIcon from '../assets/infrastructure-icon-onboarding.svg';
+import InfrastructureWhiteIcon from '../assets/infrastructure-icon-white.svg';
 import LocationOnboardingIcon from '../assets/location-icon-onboarding.svg';
 import PreferencesOnboardingIcon from '../assets/preferences-icon-onboarding.svg';
 import ReportIcon from '../assets/report-icon.svg';
@@ -30,6 +31,7 @@ export const ICONS = {
   details: DetailsIcon,
   'disclosure-onboarding': DisclosureOnboardingIcon,
   exit: ExitIcon,
+  infrastructure: InfrastructureWhiteIcon,
   'infrastructure-onboarding': InfrastructureOnboardingIcon,
   'location-onboarding': LocationOnboardingIcon,
   'preferences-onboarding': PreferencesOnboardingIcon,

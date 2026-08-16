@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
-import { fetchWeatherWithFallback, computeWeatherFactor, WeatherFactor } from '../core/weather';
-import { fetchScheduledOutages, ScheduledOutage } from '../core/outageFeed';
+import { fetchWeatherWithFallback, computeWeatherFactor, findWeatherWindow, WeatherFactor } from '../core/weather';
+import { fetchScheduledOutagesWithFallback, prefetchScheduledOutages, matchesLocality, getOutageDateRange, ScheduledOutage } from '../core/outageFeed';
 import { computeHistoryFactor, HistoryFactor } from '../core/historyFactor';
 import { computeInfrastructureFactor, InfrastructureFactor } from '../core/infrastructureFactor';
 import { computeRisk, RiskResult } from '../core/riskEngine';
@@ -12,6 +12,35 @@ import { sendRiskAlert, scheduleConfirmationPrompt } from '../core/notifications
 export const confirmationLog = new ConfirmationLog(new AsyncStoragePersistence());
 
 let lastAlertedTier: string | null = null;
+// Tracks windowEnd (ISO string) of the last risk window a confirmation
+// prompt was scheduled for - scheduleConfirmationPrompt previously had no
+// gate at all, so every pipeline run (app open, pull-to-refresh, settings
+// change) scheduled a brand new prompt even when the risk window hadn't
+// changed, stacking up multiple "Did the power go out?" notifications for
+// the same real-world time period.
+let lastPromptedWindowEnd: string | null = null;
+
+// "HH:MM" -> minutes since midnight, in local time (matches the picker in
+// Settings/Onboarding, which stores plain local wall-clock strings).
+function parseTimeToMinutes(hhmm: string): number {
+  const [h, m] = hhmm.split(':').map(Number);
+  return (h % 24) * 60 + (m % 60);
+}
+
+// Quiet hours can wrap past midnight (e.g. 22:00-06:00), so a simple
+// start <= now <= end check isn't enough - handle both cases.
+function isWithinQuietHours(prefs: UserSettings['preferences'], now: Date = new Date()): boolean {
+  if (!prefs.quietHoursOn) return false;
+  const start = parseTimeToMinutes(prefs.quietHoursStart);
+  const end = parseTimeToMinutes(prefs.quietHoursEnd);
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  if (start === end) return false; // zero-length window, treat as no quiet hours
+  if (start < end) {
+    return nowMinutes >= start && nowMinutes < end;
+  }
+  // wraps past midnight
+  return nowMinutes >= start || nowMinutes < end;
+}
 
 export type PipelineState =
   | { status: 'loading' }
@@ -24,9 +53,15 @@ export type PipelineState =
       historyFactor: HistoryFactor;
       infrastructureFactor: InfrastructureFactor;
       scheduledOutages: ScheduledOutage[];
+      scheduledOutagesIsStale: boolean;
       totalLoggedWindows: number;
       unconfirmedWindows: ConfirmedWindow[];
       settings: UserSettings;
+      // The risk window's real start/end, grounded in whichever signal is
+      // dominant (scheduled outage's own times, weather forecast window, or
+      // a fixed default) - null when risk is Low, since no window is
+      // computed in that case.
+      riskWindow: { start: string; end: string } | null;
     };
 
 const DEFAULT_SETTINGS: UserSettings = {
@@ -70,33 +105,113 @@ export function useOhmPipeline() {
       const weatherResult = await fetchWeatherWithFallback(districtInfo.lat, districtInfo.lon);
       const weatherFactor = computeWeatherFactor(weatherResult.snapshot);
 
-      let scheduledOutages: ScheduledOutage[] = [];
-      try {
-        scheduledOutages = await fetchScheduledOutages(districtInfo.name);
-      } catch (feedErr) {
-        console.warn('Outage feed unavailable, continuing without it:', feedErr);
-      }
+      const outageFeedResult = await fetchScheduledOutagesWithFallback(districtInfo.name);
+      const scheduledOutages: ScheduledOutage[] = outageFeedResult.outages;
+      const scheduledOutagesIsStale = outageFeedResult.isStale;
+
+      // Best-effort background refresh of today + next 2 days, so the cache
+      // stays warm ahead of time - not awaited, since this shouldn't block
+      // the pipeline render, and its own failures are already handled
+      // internally.
+      prefetchScheduledOutages(districtInfo.name, 3).catch(() => {});
 
       const confirmedWindows = await confirmationLog.getConfirmed();
       const historyFactor = computeHistoryFactor(confirmedWindows);
 
       const infrastructureFactor = computeInfrastructureFactor(currentSettings.infrastructure);
 
-      const risk = computeRisk(weatherFactor, historyFactor, infrastructureFactor);
+      let risk = computeRisk(weatherFactor, historyFactor, infrastructureFactor, currentSettings.preferences.riskTolerance);
+
+      // A scheduled outage confirmed for the user's own locality is closer
+      // to a known fact than a heuristic estimate - it overrides the
+      // computed tier to High rather than just nudging the weighted score,
+      // since previously this data was fetched but never used at all.
+      const matchedOutage = scheduledOutages.find((o) => matchesLocality(o, currentSettings.location.area));
+      if (matchedOutage && risk.tier !== 'High') {
+        risk = {
+          ...risk,
+          tier: 'High',
+          explanation: `Scheduled outage reported for your area (${matchedOutage.startTime}-${matchedOutage.endTime}), affecting ${matchedOutage.section}.`,
+          dominantFactor: 'history',
+          // A confirmed scheduled outage is the clearest possible driver of
+          // "maintenance" risk - reflect that in the ring's contributions
+          // too, not just the tier/explanation, so the two don't disagree.
+          contributions: {
+            ...risk.contributions,
+            history: Math.max(risk.contributions.history, risk.contributions.weather + risk.contributions.infrastructure + 0.01),
+          },
+        };
+      }
+
+      let riskWindow: { start: string; end: string } | null = null;
 
       if (risk.tier !== 'Low') {
-        const windowStart = new Date();
-        const windowEnd = new Date(windowStart.getTime() + 4 * 60 * 60 * 1000);
-        await confirmationLog.addPrediction(risk.tier, windowStart, windowEnd);
+        let windowStart: Date;
+        let windowEnd: Date;
 
-        if (lastAlertedTier !== risk.tier) {
-          lastAlertedTier = risk.tier;
-          await sendRiskAlert(risk.tier, risk.explanation);
+        if (matchedOutage) {
+          // A confirmed scheduled outage has its own real, stated times -
+          // more accurate than any estimate. getOutageDateRange combines
+          // the outage's date with its HH:MM start/end (new Date("16:00")
+          // alone is always Invalid Date, since it has no date component -
+          // this previously silently fell through to the 4h default every
+          // single time a scheduled outage matched).
+          const range = getOutageDateRange(matchedOutage);
+          if (range) {
+            windowStart = range.start;
+            windowEnd = range.end;
+          } else {
+            windowStart = new Date();
+            windowEnd = new Date(windowStart.getTime() + 4 * 60 * 60 * 1000);
+          }
+        } else if (risk.dominantFactor === 'weather') {
+          const weatherWindow = findWeatherWindow(weatherResult.snapshot);
+          if (weatherWindow.durationHours > 0) {
+            windowStart = new Date(Date.now() + weatherWindow.startsInHours * 60 * 60 * 1000);
+            windowEnd = new Date(windowStart.getTime() + weatherWindow.durationHours * 60 * 60 * 1000);
+          } else {
+            // Weather scored dominant by its forecast-wide peak value, but
+            // no single hour in the forecast actually crosses the bad-
+            // weather threshold - fall back rather than show "next 0 hours".
+            windowStart = new Date();
+            windowEnd = new Date(windowStart.getTime() + 4 * 60 * 60 * 1000);
+          }
+        } else {
+          // History/infrastructure dominant - neither has a time dimension
+          // to ground a duration in, so use the fixed default.
+          windowStart = new Date();
+          windowEnd = new Date(windowStart.getTime() + 4 * 60 * 60 * 1000);
         }
-        const allWindowsForPrompt = await confirmationLog.getAll();
-        const justAdded = allWindowsForPrompt[allWindowsForPrompt.length - 1];
-        if (justAdded) {
-          await scheduleConfirmationPrompt(justAdded.id, risk.tier, windowEnd);
+
+        riskWindow = { start: windowStart.toISOString(), end: windowEnd.toISOString() };
+
+        // riskEngine's score is 0-1; confirmationLog/AccuracyScreen store and
+        // render on a 0-100 scale, so convert explicitly at this boundary.
+        await confirmationLog.addPrediction(risk.tier, windowStart, windowEnd, Math.round(risk.score * 100));
+
+        const notificationsAllowed =
+          currentSettings.preferences.notificationsOn && !isWithinQuietHours(currentSettings.preferences);
+
+        if (notificationsAllowed) {
+          if (lastAlertedTier !== risk.tier) {
+            lastAlertedTier = risk.tier;
+            await sendRiskAlert(risk.tier, risk.explanation);
+          }
+          const windowEndIso = windowEnd.toISOString();
+          if (lastPromptedWindowEnd !== windowEndIso) {
+            lastPromptedWindowEnd = windowEndIso;
+            const allWindowsForPrompt = await confirmationLog.getAll();
+            const justAdded = allWindowsForPrompt[allWindowsForPrompt.length - 1];
+            if (justAdded) {
+              await scheduleConfirmationPrompt(justAdded.id, risk.tier, windowEnd);
+            }
+          }
+        } else if (lastAlertedTier !== risk.tier) {
+          // Still track tier changes even when the notification itself is
+          // suppressed, so a real alert can fire the moment quiet hours end
+          // or notifications are re-enabled, instead of staying silent
+          // because lastAlertedTier was never updated.
+          lastAlertedTier = risk.tier;
         }
       } else {
         lastAlertedTier = null;
@@ -113,9 +228,11 @@ export function useOhmPipeline() {
         historyFactor,
         infrastructureFactor,
         scheduledOutages,
+        scheduledOutagesIsStale,
         totalLoggedWindows: allWindows.length,
         unconfirmedWindows,
         settings: currentSettings,
+        riskWindow,
       });
     } catch (err) {
       setState({ status: 'error', message: err instanceof Error ? err.message : String(err) });

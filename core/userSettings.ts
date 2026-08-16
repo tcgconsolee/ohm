@@ -79,10 +79,10 @@ export async function loadUserSettings(): Promise<UserSettings> {
       return DEFAULT_SETTINGS;
     }
     return {
-      location: parsed.location ?? { ...DEFAULT_SETTINGS.location, district },
+      location: { ...DEFAULT_SETTINGS.location, ...parsed.location, district },
       businessType: parsed.businessType ?? DEFAULT_SETTINGS.businessType,
-      infrastructure: parsed.infrastructure ?? DEFAULT_SETTINGS.infrastructure,
-      preferences: parsed.preferences ?? DEFAULT_SETTINGS.preferences,
+      infrastructure: { ...DEFAULT_SETTINGS.infrastructure, ...parsed.infrastructure },
+      preferences: { ...DEFAULT_SETTINGS.preferences, ...parsed.preferences },
     };
   } catch (err) {
     console.warn('UserSettings: failed to load, using default', err);

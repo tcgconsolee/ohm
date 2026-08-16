@@ -83,7 +83,7 @@ function makeStyles(theme: OhmTheme) {
   const isLight = theme.mode === 'light';
 
   return StyleSheet.create({
-    content: { padding: 24, paddingTop: 30, paddingBottom: 60, flexGrow: 1 },
+    content: { padding: 24, paddingTop: 60, paddingBottom: 60, flexGrow: 1 },
     logo: { alignSelf: 'center', marginBottom: 20 },
     
     // Split Multi-Tone Card Layout Architecture System

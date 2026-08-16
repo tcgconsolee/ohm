@@ -69,9 +69,9 @@ export function ThemedChipGroup<T extends string>({
 
 const styles = StyleSheet.create({
   inputWrap: { marginBottom: 14 },
-  label: { fontSize: 12, marginBottom: 6 },
-  input: { borderWidth: 1, borderRadius: 10, padding: 11, fontSize: 14 },
+  label: { fontSize: 12, marginBottom: 6, fontFamily: 'Gilroy-Regular' },
+  input: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 11, paddingVertical: 0, fontSize: 14, fontFamily: 'Gilroy-Regular', height: 44, textAlignVertical: 'center' },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap' },
   chip: { borderWidth: 1, borderRadius: 8, paddingVertical: 8, paddingHorizontal: 14, marginRight: 8, marginBottom: 8 },
-  chipText: { fontSize: 13 },
+  chipText: { fontSize: 13, fontFamily: 'Gilroy-SemiBold' },
 });

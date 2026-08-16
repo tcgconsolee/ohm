@@ -112,7 +112,7 @@ export default function OnboardingStepFrame({
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  scrollContent: { padding: 24, paddingTop: 30, paddingBottom: 40, alignItems: 'center', flexGrow: 1 },
+  scrollContent: { padding: 24, paddingTop: 60, paddingBottom: 40, alignItems: 'center', flexGrow: 1 },
   
   logo: { alignSelf: 'center', marginBottom: 20 },
   

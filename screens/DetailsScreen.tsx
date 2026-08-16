@@ -119,7 +119,7 @@ export default function DetailsScreen() {
 }
 function makeStyles(theme: OhmTheme) {
   return StyleSheet.create({
-    content: { padding: 20, paddingTop: 30, paddingBottom: 120, flexGrow: 1 },
+    content: { padding: 20, paddingTop: 60, paddingBottom: 180, flexGrow: 1 },
     centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 20, backgroundColor: theme.background },
     errorText: { color: theme.textMuted, fontFamily: 'Gilroy-Regular' },
     

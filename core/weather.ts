@@ -133,3 +133,42 @@ export function computeWeatherFactor(snap: WeatherSnapshot): WeatherFactor {
 
   return { score, reason }
 }
+
+// Finds the risk window the forecast actually supports: the next
+// consecutive stretch of "bad weather" hours (by the same thresholds
+// computeWeatherFactor uses per hour, rather than the snapshot-wide max),
+// including one starting right now. Used to ground the risk window's
+// displayed duration in the real forecast instead of a fixed guess, when
+// weather is the dominant risk factor - weather can be flagged dominant by
+// its peak forecast value even if the bad stretch hasn't started yet, so
+// this looks forward rather than assuming "now".
+export interface WeatherWindow {
+  startsInHours: number; // hours from now until the bad-weather window starts (0 = starting now or already started)
+  durationHours: number; // 0 if no bad-weather hour exists anywhere in the forecast
+}
+
+export function findWeatherWindow(snap: WeatherSnapshot, now: Date = new Date()): WeatherWindow {
+  const isBadHour = (i: number): boolean => {
+    const gustBad = (snap.windGusts[i] ?? 0) > 40
+    const precipBad = (snap.precipitationProbability[i] ?? 0) > 60
+    const stormBad = c1.has(snap.weatherCode[i] ?? -1)
+    return gustBad || precipBad || stormBad
+  }
+
+  const startIndex = snap.time.findIndex((_, i) => isBadHour(i))
+  if (startIndex === -1) return { startsInHours: 0, durationHours: 0 }
+
+  // Use the forecast's own timestamps rather than treating the array index
+  // as a literal hours-from-now offset, since the first forecast hour isn't
+  // guaranteed to align exactly with the current moment.
+  const startTime = new Date(snap.time[startIndex]).getTime()
+  const startsInHours = Math.max(0, Math.round((startTime - now.getTime()) / (60 * 60 * 1000)))
+
+  let durationHours = 0
+  for (let i = startIndex; i < snap.time.length; i++) {
+    if (!isBadHour(i)) break
+    durationHours++
+  }
+
+  return { startsInHours: startIndex, durationHours }
+}
