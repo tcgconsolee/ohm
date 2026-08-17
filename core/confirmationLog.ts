@@ -55,6 +55,13 @@ export class AsyncStoragePersistence implements Persistence {
   }
 }
 
+const RETENTION_DAYS = 30;
+
+function pruneOldEntries(windows: ConfirmedWindow[]): ConfirmedWindow[] {
+  const cutoff = Date.now() - RETENTION_DAYS * 24 * 60 * 60 * 1000;
+  return windows.filter((w) => new Date(w.windowEnd).getTime() >= cutoff);
+}
+
 export class ConfirmationLog {
   constructor(private p: Persistence) {}
 
@@ -64,7 +71,7 @@ export class ConfirmationLog {
 
   // UPDATED: Accept an optional numeric risk score parameter
   async addPrediction(level: RiskTier, start: Date, end: Date, score?: number): Promise<string> {
-    const w = await this.p.load();
+    const w = pruneOldEntries(await this.p.load());
     const id = `${start.getTime()}-${Math.random().toString(36).slice(2, 8)}`;
     
     w.push({

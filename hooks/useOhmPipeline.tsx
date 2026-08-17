@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useState, ReactNode } from 'react';
 
 import { fetchWeatherWithFallback, computeWeatherFactor, findWeatherWindow, WeatherFactor } from '../core/weather';
 import { fetchScheduledOutagesWithFallback, prefetchScheduledOutages, matchesLocality, getOutageDateRange, ScheduledOutage } from '../core/outageFeed';
@@ -82,10 +82,11 @@ const DEFAULT_SETTINGS: UserSettings = {
   },
 };
 
-// Central pipeline hook. Any screen that needs risk data uses this instead
-// of duplicating fetch/compute logic - keeps Home, Details, Accuracy, and
-// Settings all reading from and writing to the same real, persisted state.
-export function useOhmPipeline() {
+// Internal implementation - holds the actual pipeline state and network
+// logic. Not exported directly; screens should use the OhmPipelineProvider
+// + useOhmPipeline() context pair below instead, so only one instance of
+// this runs for the whole app rather than one per screen.
+function useOhmPipelineInternal(enabled: boolean) {
   const [state, setState] = useState<PipelineState>({ status: 'loading' });
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [settings, setSettings] = useState<UserSettings>(DEFAULT_SETTINGS);
@@ -126,7 +127,9 @@ export function useOhmPipeline() {
       // to a known fact than a heuristic estimate - it overrides the
       // computed tier to High rather than just nudging the weighted score,
       // since previously this data was fetched but never used at all.
-      const matchedOutage = scheduledOutages.find((o) => matchesLocality(o, currentSettings.location.area));
+      const matchedOutage = scheduledOutages.find((o) =>
+        matchesLocality(o, currentSettings.location.area, currentSettings.location.pincode)
+      );
       if (matchedOutage && risk.tier !== 'High') {
         risk = {
           ...risk,
@@ -240,11 +243,11 @@ export function useOhmPipeline() {
   }, []);
 
   useEffect(() => {
-    if (settingsLoaded) {
+    if (settingsLoaded && enabled) {
       runPipeline(settings);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settingsLoaded]);
+  }, [settingsLoaded, enabled]);
 
   const refresh = useCallback(() => runPipeline(settings), [runPipeline, settings]);
 
@@ -258,4 +261,32 @@ export function useOhmPipeline() {
   );
 
   return { state, refresh, settings, updateSettings };
+}
+
+type OhmPipelineContextValue = ReturnType<typeof useOhmPipelineInternal>;
+
+const OhmPipelineContext = createContext<OhmPipelineContextValue | null>(null);
+
+// Mount once near the app root (in App.tsx) so every screen that consumes
+// useOhmPipeline() shares the same underlying state and network calls,
+// instead of each screen independently re-fetching everything on its own
+// mount. `enabled` gates the automatic network fetch (e.g. pass
+// phase === 'main' so it doesn't start hitting the network with default
+// settings during splash/onboarding, before the user has entered their
+// real location) - defaults to true for callers that don't need to gate it.
+export function OhmPipelineProvider({ children, enabled = true }: { children: ReactNode; enabled?: boolean }) {
+  const value = useOhmPipelineInternal(enabled);
+  return <OhmPipelineContext.Provider value={value}>{children}</OhmPipelineContext.Provider>;
+}
+
+// Same public API as before ({ state, refresh, settings, updateSettings })
+// so existing screen code using useOhmPipeline() doesn't need to change -
+// only the import source moves from a per-screen hook call to a shared
+// context read.
+export function useOhmPipeline(): OhmPipelineContextValue {
+  const ctx = useContext(OhmPipelineContext);
+  if (!ctx) {
+    throw new Error('useOhmPipeline must be used within an OhmPipelineProvider');
+  }
+  return ctx;
 }

@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { View, ActivityIndicator, StyleSheet, Pressable, Animated, Text, Platform } from 'react-native';
-import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
+import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -9,6 +9,8 @@ import Svg, { Mask, Rect, Path, G } from 'react-native-svg';
 import { ThemeProvider, useTheme } from './theme/ThemeProvider';
 import { useGilroyFonts } from './theme/useGilroyFonts';
 import { isOnboardingComplete } from './core/onboardingStatus';
+import { OhmPipelineProvider } from './hooks/useOhmPipeline';
+import { navigationRef, revisitSetupRef } from './navigation/appRefs';
 
 import SplashScreen from './screens/SplashScreen';
 import OnboardingFlow from './screens/onboarding/OnboardingFlow';
@@ -26,10 +28,6 @@ import Icon from './components/Icon';
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
 const AnimatedG = Animated.createAnimatedComponent(G);
-
-// Lets the notification-response listener below navigate without being
-// inside the NavigationContainer's component tree.
-export const navigationRef = createNavigationContainerRef();
 
 function MainTabs() {
   const theme = useTheme();
@@ -207,11 +205,9 @@ function RootNavigator() {
   const [phase, setPhase] = useState<AppPhase>('splash');
 
   useEffect(() => {
-    (window as any).triggerSetupExplainerRevisit = () => {
-      setPhase('onboarding'); 
-    };
+    revisitSetupRef.current = () => setPhase('onboarding');
     return () => {
-      delete (window as any).triggerSetupExplainerRevisit;
+      revisitSetupRef.current = null;
     };
   }, []);
 
@@ -263,59 +259,57 @@ function RootNavigator() {
     setPhase(complete ? 'main' : 'onboarding');
   };
 
-  if (phase === 'splash') {
-    return <SplashScreen onFinished={handleSplashFinished} />;
-  }
-
-  if (phase === 'onboarding') {
-    return <OnboardingFlow onComplete={() => setPhase('main')} />;
-  }
-
   return (
-    <NavigationContainer
-      ref={navigationRef}
-      theme={{
-        dark: theme.mode === 'dark',
-        colors: {
-          primary: theme.textPrimary,
-          background: theme.background,
-          card: theme.cardBackground,
-          text: theme.textPrimary,
-          border: theme.border,
-          notification: theme.riskHigh,
-        },
-        fonts: {
-          regular: { fontFamily: 'Gilroy-Regular', fontWeight: '400' },
-          medium: { fontFamily: 'Gilroy-Medium', fontWeight: '500' },
-          bold: { fontFamily: 'Gilroy-Bold', fontWeight: '700' },
-          heavy: { fontFamily: 'Gilroy-Heavy', fontWeight: '900' },
-        },
-      }}
-    >
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="Main" component={MainTabs} />
-        <Stack.Screen
-          name="ActionPlan"
-          component={ActionPlanScreen}
-          options={{ presentation: 'modal', headerShown: true, title: '' }}
-        />
-        <Stack.Screen
-          name="Report"
-          component={ReportScreen}
-          options={{ presentation: 'modal', headerShown: true, title: '' }}
-        />
-        <Stack.Screen
-          name="Confirmation"
-          component={ConfirmationScreen}
-          options={{ presentation: 'modal', headerShown: true, title: '' }}
-        />
-        <Stack.Screen
-          name="Disclosure"
-          component={DisclosureScreen}
-          options={{ presentation: 'modal', headerShown: true, title: '' }}
-        />
-      </Stack.Navigator>
-    </NavigationContainer>
+    <OhmPipelineProvider enabled={phase === 'main'}>
+      {phase === 'splash' && <SplashScreen onFinished={handleSplashFinished} />}
+      {phase === 'onboarding' && <OnboardingFlow onComplete={() => setPhase('main')} />}
+      {phase === 'main' && (
+        <NavigationContainer
+          ref={navigationRef}
+          theme={{
+            dark: theme.mode === 'dark',
+            colors: {
+              primary: theme.textPrimary,
+              background: theme.background,
+              card: theme.cardBackground,
+              text: theme.textPrimary,
+              border: theme.border,
+              notification: theme.riskHigh,
+            },
+            fonts: {
+              regular: { fontFamily: 'Gilroy-Regular', fontWeight: '400' },
+              medium: { fontFamily: 'Gilroy-Medium', fontWeight: '500' },
+              bold: { fontFamily: 'Gilroy-Bold', fontWeight: '700' },
+              heavy: { fontFamily: 'Gilroy-Heavy', fontWeight: '900' },
+            },
+          }}
+        >
+          <Stack.Navigator screenOptions={{ headerShown: false }}>
+            <Stack.Screen name="Main" component={MainTabs} />
+            <Stack.Screen
+              name="ActionPlan"
+              component={ActionPlanScreen}
+              options={{ presentation: 'modal', headerShown: true, title: '' }}
+            />
+            <Stack.Screen
+              name="Report"
+              component={ReportScreen}
+              options={{ presentation: 'modal', headerShown: true, title: '' }}
+            />
+            <Stack.Screen
+              name="Confirmation"
+              component={ConfirmationScreen}
+              options={{ presentation: 'modal', headerShown: true, title: '' }}
+            />
+            <Stack.Screen
+              name="Disclosure"
+              component={DisclosureScreen}
+              options={{ presentation: 'modal', headerShown: true, title: '' }}
+            />
+          </Stack.Navigator>
+        </NavigationContainer>
+      )}
+    </OhmPipelineProvider>
   );
 }
 

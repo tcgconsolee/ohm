@@ -171,6 +171,40 @@ async function writeCache(district: string, date: Date, outages: ScheduledOutage
   }
 }
 
+// Each day's prefetch writes a new per-day cache key and nothing ever
+// removed old ones - after months of daily use this accumulates hundreds of
+// stale keys for dates that have long since passed. Removes cache entries
+// older than a small retention window (keeps yesterday too, as a small
+// safety margin for a pipeline run right after midnight).
+async function pruneStaleCache(): Promise<void> {
+  try {
+    const AsyncStorage = await getAsyncStorage()
+    const allKeys = await AsyncStorage.getAllKeys()
+    const cacheKeys = allKeys.filter((k) => k.startsWith(CACHE_KEY_PREFIX))
+
+    const retentionCutoff = new Date()
+    retentionCutoff.setDate(retentionCutoff.getDate() - 1)
+    retentionCutoff.setHours(0, 0, 0, 0)
+
+    const staleKeys = cacheKeys.filter((k) => {
+      // key format: "ohm:outageFeedCache:<district>:<dd-mm-yyyy>"
+      const datePart = k.slice(k.lastIndexOf(':') + 1)
+      const m = datePart.match(/^(\d{2})-(\d{2})-(\d{4})$/)
+      if (!m) return false // unrecognized format, leave it alone rather than guess
+      const keyDate = new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]))
+      return keyDate.getTime() < retentionCutoff.getTime()
+    })
+
+    if (staleKeys.length > 0) {
+      await AsyncStorage.multiRemove(staleKeys)
+    }
+  } catch (err) {
+    // Best-effort cleanup - a failure here doesn't affect correctness, just
+    // means storage doesn't get trimmed this round.
+    console.warn('Outage feed: failed to prune stale cache', err)
+  }
+}
+
 export interface OutageFeedResult {
   outages: ScheduledOutage[];
   isStale: boolean; // true when served from cache because the live fetch failed
@@ -214,6 +248,8 @@ export async function fetchScheduledOutagesWithFallback(
 // path (fetchScheduledOutagesWithFallback handles that with its own
 // fallback and error surfacing).
 export async function prefetchScheduledOutages(district: string, daysAhead: number = 3): Promise<void> {
+  await pruneStaleCache()
+
   const today = new Date()
   for (let i = 0; i < daysAhead; i++) {
     const date = new Date(today)
@@ -231,8 +267,12 @@ export async function prefetchScheduledOutages(district: string, daysAhead: numb
   }
 }
 
-export function matchesLocality(o: ScheduledOutage, locality: string): boolean {
+export function matchesLocality(o: ScheduledOutage, locality: string, pincode?: string): boolean {
   const n = locality.trim().toLowerCase()
-  if (!n) return false
-  return o.affectedAreas.some((a) => a.toLowerCase().includes(n))
+  const p = pincode?.trim().toLowerCase() ?? ''
+  if (!n && !p) return false
+  return o.affectedAreas.some((a) => {
+    const areaLower = a.toLowerCase()
+    return (n && areaLower.includes(n)) || (p && areaLower.includes(p))
+  })
 }

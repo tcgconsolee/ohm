@@ -4,6 +4,7 @@ import { useNavigation } from '@react-navigation/native';
 import Slider from '@react-native-community/slider';
 
 import { useOhmPipeline } from '../hooks/useOhmPipeline';
+import { revisitSetupRef } from '../navigation/appRefs';
 import { FeederType } from '../core/infrastructureFactor';
 import { RiskTolerance, SUPPORTED_DISTRICTS } from '../core/userSettings';
 import { useTheme, useThemePreference, ThemePreference } from '../theme/ThemeProvider';
@@ -53,17 +54,14 @@ export default function SettingsScreen() {
     return hr === 0 ? '12 AM' : hr === 12 ? '12 PM' : hr > 12 ? `${hr - 12} PM` : `${hr} AM`;
   };
 
-  // REFACTORED RESET FLOW ROUTINE: Resets onboarding tokens and reloads the navigator phase frame
-    // FIXED PERSISTENT ROUTING: Conserves data records while loading the onboarding timeline
+  // Returns to onboarding without clearing any saved settings/history -
+  // just changes which phase App.tsx's RootNavigator renders.
   const handleRevisitSetup = () => {
     try {
-      if (typeof (window as any).triggerSetupExplainerRevisit === 'function') {
-        // Exits main stack and renders the onboarding deck without clearing AsyncStorage profiles
-        (window as any).triggerSetupExplainerRevisit();
-        console.log('Setup explainer revisited; profile settings data safely conserved.');
+      if (revisitSetupRef.current) {
+        revisitSetupRef.current();
       } else {
-        // Fallback safety route pass context if window tracking hooks are uninitialized
-        navigation.navigate('Onboarding');
+        console.warn('SettingsScreen: revisitSetupRef not set - RootNavigator may not be mounted');
       }
     } catch (err) {
       console.warn('SettingsScreen: Failed to safely trigger onboarding stack jump', err);
