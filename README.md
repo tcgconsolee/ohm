@@ -82,6 +82,6 @@ ios
 • A real onboarding flow (Location → Infrastructure → Preferences → Disclosure), rather than having those forms inline with the diagnostic
 • Verified notifications + confirmation logic; the code is there, but it cannot be easily tested on a desktop browser
 
-# Figma link
+# Behance Link
 
-https://www.figma.com/design/opuqkUSSwSnf1y9PeNo6EE/QUTUHAL?node-id=2001-2&t=ZTselRpo8Drqrutl-1
+https://www.behance.net/gallery/253629459/OHM
