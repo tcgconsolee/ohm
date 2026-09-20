@@ -1,14 +1,9 @@
-# Ohm - MVP
+# Ohm
 
 A power outage risk prediction app, built for small industrial businesses in Coimbatore, Tamil Nadu, as a concept for
 Qutuhal InnovateX 2.0 (Frontier Innovators track).
 
 Ohm takes live weather reports, local outage records, and self-reported infrastructure information and distills it into an easy-to-read Low / Elevated / High indicator.
-
-## Status
-This is a proof-of-concept MVP; the actual polished application has yet to be built
-
-Currently implements a diagnostic view that represents a simplified version of the full data pipeline (weather fetch, outage feed fetch, risk calculation, local persistence, confirmation logic), rather than the full Home / Details / Accuracy / Settings / Action Plan UI seen in the mockups, which is implemented separately for now.
 
 ## Architecture
 
@@ -39,19 +34,6 @@ riskEngine.ts are not based on any research; the papers cited below only show th
 Allcott et al (NBER / American Economic Review, 2016) - electricity shortages reduce average Indian plant revenue by 5-10%; businesses without backup generators are worst hit.
 Lee et al (ORNL, IEEE IRI 2023) - machine learning can predict outage risk based on historical data (EAGLE-I database) + National Weather Service alerts. Shows that outage prediction is possible using pattern recognition; does not specify how to implement it.
 Other references to India's electricity problems, blackout economics, small-business impacts - see the project's tech spec for a more detailed list.
-## Project structure
-```ts
-App.tsx         # diagnostic MVP view - stitches together the whole pipeline
-core/
-weather.ts        # Open-Meteo fetch + fallback + risk scoring
-outageFeed.ts       # NammaMap outage parser
-historyFactor.ts      # history-based risk factor calculator
-infrastructureFactor.ts  # infrastructure report parser
-confirmationLog.ts     # persistent storage of risk windows + user confirmations
-userSettings.ts      # persistent storage of current location + infrastructure
-riskEngine.ts        # final risk calculation + tier assignment
-notifications.ts      # app-level alerts + confirmation prompts
-```
 
 ## Running it
 ```markup
@@ -75,12 +57,6 @@ https://expo.dev/go?sdkVersion=&platform=android
 or
 ios
 , rather than relying on the google play / app store listings, which may not always have the latest sdk.
-
-## What's next?
-
-• The actual designed UI (Home risk ring, Details, Accuracy, Settings, Action Plan) - currently only has the diagnostic view that stitches together the pipeline
-• A real onboarding flow (Location → Infrastructure → Preferences → Disclosure), rather than having those forms inline with the diagnostic
-• Verified notifications + confirmation logic; the code is there, but it cannot be easily tested on a desktop browser
 
 # Behance Link
 
